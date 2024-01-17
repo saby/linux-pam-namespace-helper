@@ -1,0 +1,7 @@
+all: pam_saby_helper.so
+
+pam_saby_helper.so: pam_saby_helper.o
+	ld -x --shared -o ./pam_saby_helper.so main.o
+
+pam_saby_helper.o: main.c
+	gcc -fPIC -fno-stack-protector -c main.c
