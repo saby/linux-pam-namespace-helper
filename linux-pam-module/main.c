@@ -262,14 +262,16 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
       setuid( user_id );
       setgid( user_group_id );
 
-      WriteWorkerLog( home_dir, "===========START===========" );
-
       const char SBIS_USER_DIR[] = "/.Sbis3Plugin/";
       const char FIFO_FILE_NAME[] = "PamBrokerInput";
 
       char fifo_file_path[ 256 ];
       memcpy( fifo_file_path, home_dir, strlen( home_dir ) + 1 );
       strcat( fifo_file_path, SBIS_USER_DIR );
+      mkdir( fifo_file_path, 0777 );
+
+      WriteWorkerLog( home_dir, "===========START===========" );
+
       strcat( fifo_file_path, FIFO_FILE_NAME );
 
       WriteWorkerLog( home_dir, fifo_file_path );
