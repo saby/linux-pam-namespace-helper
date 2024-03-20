@@ -1,6 +1,8 @@
 #include <security/pam_modules.h>
 #include <security/pam_ext.h>
+#include <security/pam_appl.h>
 
+#include <pwd.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <syslog.h>
@@ -9,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 char* GetCurrentDateTimeLogPrefix()
 {
@@ -60,85 +63,6 @@ void WriteWorkerLog( const char* home_dir, const char* msg )
     }
 
     free( date_time_prefix );
-}
-
-char* ExtractSurroundedSubstring( const char* input, int start_delimeter_num, int end_delimeter_num )
-{
-    int count = 0;
-    int start = -1;
-    int end = -1;
-
-    int i = 0;
-    while( i < strlen( input ) )
-    {
-        if( input[ i ] == ':' )
-        {
-            ++count;
-            if( count == start_delimeter_num )
-            {
-                start = i + 1;
-            }
-            else if( count == end_delimeter_num )
-            {
-                end = i;
-                break;
-            }
-        }
-        ++i;
-    }
-    if( start != -1 && end != -1 )
-    {
-        int length = end - start;
-        char* result = ( char* )malloc( length + 1 );
-        strncpy( result, input + start, length );
-        result[ length ] = '\0';
-        return result;
-    }
-    else
-    {
-        return NULL;
-    }
-}
-
-char* FindSubstringInFile( const char* filename, const char* substring )
-{
-    FILE* file = fopen( filename, "r" );
-    if( file == NULL )
-    {
-        return NULL;
-    }
-
-    char* line = NULL;
-    size_t len = 0;
-    ssize_t read;
-
-    while( ( read = getline( &line, &len, file ) ) != -1 )
-    {
-        if( strncmp( line, substring, strlen( substring ) ) == 0 )
-        {
-            fclose( file );
-            return line;
-        }
-    }
-
-    fclose( file );
-    return NULL;
-}
-
-void GetUserInfoFromString( const char* user_name, int* user_id, int* group_id, char** home_dir )
-{
-    char* user_info_string = FindSubstringInFile( "/etc/passwd", user_name );
-
-    char* user_id_str = ExtractSurroundedSubstring( user_info_string, 2, 3 );
-    char* group_id_str = ExtractSurroundedSubstring( user_info_string, 3, 4 );
-    *home_dir = ExtractSurroundedSubstring( user_info_string, 5, 6 );
-
-    *user_id = atoi( user_id_str );
-    *group_id = atoi( group_id_str );
-
-    free( user_info_string );
-    free( user_id_str );
-    free( group_id_str );
 }
 
 void SplitEnvString( char* str, char** name, char** value )
@@ -236,10 +160,30 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
        return PAM_SUCCESS;
    }
 
-   int user_id = 0;
-   int user_group_id = 0;
-   char* home_dir = NULL;
-   GetUserInfoFromString( user, &user_id, &user_group_id, &home_dir );
+   WriteStarterLog( user );
+
+   const char *home_dir = pam_getenv(pamh, "HOME");
+   WriteStarterLog( home_dir );
+
+   uid_t user_id = 0;
+   gid_t user_group_id = 0;
+
+   struct passwd *pwd = getpwnam( user );
+   if( NULL != pwd )
+   {
+      user_id = pwd->pw_uid;
+      user_group_id = pwd->pw_gid;
+
+      char tmp[ 64 ];
+      sprintf( tmp, "%d", user_id );
+      WriteStarterLog( tmp );
+      sprintf( tmp, "%d", user_group_id );
+      WriteStarterLog( tmp );
+   }
+   else
+   {
+      WriteStarterLog( "user info unavailable" );
+   }
 
    if( user_id <= 0 || user_group_id <= 0 )
    {
@@ -334,8 +278,6 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
           }
       }
    }
-
-   free( home_dir );
 
    return PAM_SUCCESS;
 }
