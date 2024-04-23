@@ -1,3 +1,9 @@
+/**
+ * \file
+ * \author Новожилов А. В.
+ * \brief Модуль для работы СБИС Плагина в условиях включенного мандатного доступа для директории шареной памяти /dev/shm.
+ */
+
 #include <security/pam_modules.h>
 #include <security/pam_ext.h>
 #include <security/pam_appl.h>
@@ -13,7 +19,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-char* GetCurrentDateTimeLogPrefix()
+static const int PATH_SIZE = 256;
+
+/**
+ * @brief Получение строкового представления текущего времени и даты для логирования
+ * @return Указатель на строку. Результат необходимо освобождать на вызывающей стороне.
+ */
+static char* GetCurrentDateTimeLogPrefix()
 {
     struct timeval tv;
     struct tm* ptm;
@@ -26,7 +38,11 @@ char* GetCurrentDateTimeLogPrefix()
     return time_string;
 }
 
-void WriteStarterLog( const char* msg )
+/**
+ * @brief Запись лога запуска модуля. Используется до получения данных пользователя.
+ * @param Указатель на строку для вывода в лог.
+ */
+static void WriteStarterLog( const char* msg )
 {
     const char STARTER_LOG_FILE_PATH[] = "/var/log/saby/saby_pam_starter.log";
 
@@ -45,13 +61,18 @@ void WriteStarterLog( const char* msg )
     free( date_time_prefix );
 }
 
-void WriteWorkerLog( const char* home_dir, const char* msg )
+/**
+ * @brief Запись лога работы модуля.
+ *        Используется после получения данных пользователя, когда модуль начинает обрабатывать запросы от приложения на запуск.
+ * @param Указатель на строку для вывода в лог.
+ */
+static void WriteWorkerLog( const char* home_dir, const char* msg )
 {
     const char WORKER_LOG_FILE_PATH_PART[] = "/.Sbis3Plugin/logs/pam_worker.log";
 
     char* date_time_prefix = GetCurrentDateTimeLogPrefix();
 
-    char log_file_path[ 256 ];
+    char log_file_path[ PATH_SIZE ];
     memcpy( log_file_path, home_dir, strlen( home_dir ) + 1 );
     strcat( log_file_path, WORKER_LOG_FILE_PATH_PART );
 
@@ -65,7 +86,13 @@ void WriteWorkerLog( const char* home_dir, const char* msg )
     free( date_time_prefix );
 }
 
-void SplitEnvString( char* str, char** name, char** value )
+/**
+ * @brief Функция для разделения строки с именем и значением переменной окружения, разделенных символом '='
+ * @param str - строка с переменной окружения
+ * @param name[out] - строка с именем переменной
+ * @param value[out] - строка со значением переменной
+ */
+static void SplitEnvString( char* str, char** name, char** value )
 {
     const char* delimiter = "=";
     char* token = strtok( str, delimiter );
@@ -82,7 +109,12 @@ void SplitEnvString( char* str, char** name, char** value )
     }
 }
 
-void RunPluginByFileData( const char* home_dir, const char* file_path )
+/**
+ * @brief Функция выполняет запуск приложения с переданными настройками
+ * @param home_dir - Путь до домашней директории пользователя
+ * @param file_path - Путь до файла с параметрами запуска приложения
+ */
+static void RunPluginByFileData( const char* home_dir, const char* file_path )
 {
     FILE* file = fopen( file_path, "r" );
 
@@ -113,9 +145,12 @@ void RunPluginByFileData( const char* home_dir, const char* file_path )
         if( NULL != env_name && NULL != env_value )
         {
             setenv( env_name, env_value, 1 );
-            free( env_name );
-            free( env_value );
         }
+
+        if( NULL != env_name )
+            free( env_name );
+        if( NULL != env_value )
+            free( env_value );
         free( env_line );
         env_line = NULL;
     }
@@ -128,7 +163,7 @@ void RunPluginByFileData( const char* home_dir, const char* file_path )
     char nohup_start[] = "nohup ";
     char nohup_end[] = " &";
 
-    char final_cmd[ 256 ];
+    char final_cmd[ PATH_SIZE ];
 
     memcpy( final_cmd, nohup_start, strlen( nohup_start ) + 1 );
     strcat( final_cmd, "/opt/sbis3plugin/sbis3plugin " );
@@ -142,12 +177,13 @@ void RunPluginByFileData( const char* home_dir, const char* file_path )
     system( final_cmd );
 }
 
+//Api модуля pam. Обработка старта сессии.
 PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, const char **argv )
 {
-   (void)pamh;
-   (void)flags;
-   (void)argc;
-   (void)argv;
+   ( void )pamh;
+   ( void )flags;
+   ( void )argc;
+   ( void )argv;
 
    WriteStarterLog( "===========START===========" );
 
@@ -162,7 +198,7 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
 
    WriteStarterLog( user );
 
-   const char *home_dir = pam_getenv(pamh, "HOME");
+   const char *home_dir = pam_getenv( pamh, "HOME" );
    WriteStarterLog( home_dir );
 
    uid_t user_id = 0;
@@ -209,7 +245,7 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
       const char SBIS_USER_DIR[] = "/.Sbis3Plugin/";
       const char FIFO_FILE_NAME[] = "PamBrokerInput";
 
-      char fifo_file_path[ 256 ];
+      char fifo_file_path[ PATH_SIZE ];
       memcpy( fifo_file_path, home_dir, strlen( home_dir ) + 1 );
       strcat( fifo_file_path, SBIS_USER_DIR );
       mkdir( fifo_file_path, 0777 );
@@ -253,7 +289,7 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
           WriteWorkerLog( home_dir, "FIFO input found" );
           WriteWorkerLog( home_dir, file_name );
 
-          char file_path[ 256 ];
+          char file_path[ PATH_SIZE ];
           memcpy( file_path, home_dir, strlen( home_dir ) + 1 );
           strcat( file_path, SBIS_USER_DIR );
           strcat( file_path, file_name );
@@ -282,12 +318,13 @@ PAM_EXTERN int pam_sm_open_session( pam_handle_t *pamh, int flags, int argc, con
    return PAM_SUCCESS;
 }
 
+//Api модуля pam. Обработка завершения сессии.
 PAM_EXTERN int pam_sm_close_session( pam_handle_t *pamh, int flags, int argc, const char **argv )
 {
-   (void)pamh;
-   (void)flags;
-   (void)argc;
-   (void)argv;
+   ( void )pamh;
+   ( void )flags;
+   ( void )argc;
+   ( void )argv;
 
    return PAM_SUCCESS;
 }
